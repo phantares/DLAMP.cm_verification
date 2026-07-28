@@ -45,6 +45,7 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
     crs = {var: np.zeros(sample_z) for var in vars}
 
     sources = ["prediction", "target"]
+    source_to_title = {"prediction": exp, "target": "RWRF"}
     mean = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
     square = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
     std = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
@@ -78,11 +79,10 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
         month = file.stem[-2:]
         print(month)
 
-        dadd = {source: [] for source in sources}
         wps = {source: {wp: 0 for wp in WPS} for source in sources}
 
         with h5.File(file, "r") as f:
-            for v, var in enumerate(vars):
+            for var in vars:
                 print(var)
 
                 if var in ["qi", "qs", "qg"]:
@@ -95,12 +95,10 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
                     data = f[f"{source}s"][var][:]
                     data[data < thresholds[var]] = 0
 
-                    if source == "prediction":
-                        if use_mask:
-                            mask = f["predictions"][f"{var}_mask"][:]
-                            data[mask <= mask_threshold] = 0
+                    if source == "prediction" and use_mask:
+                        mask = f["predictions"][f"{var}_mask"][:]
+                        data[mask <= mask_threshold] = 0
 
-                    dadd[source].append(data)
                     datas[source] = data
                     wps[source][wp] += data
 
@@ -262,7 +260,7 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
     sr.append(detection.calculate_SR(hit, fa))
     pod.append(detection.calculate_POD(hit, miss))
 
-    plotter = PDPlotter()
+    plotter = PDPlotter([{"label": f"Performance Diagram: {exp}", "loc": "left"}])
     plotter.plot([sr], [pod], ["C6"], annots)
     plotter.save(fig_dir / "pd.png")
 
@@ -281,7 +279,7 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
         fig_dir / "csi.png",
         csi.transpose(),
         cmap=cmap_scalar,
-        title="CSI",
+        title_configs=[{"label": f"CSI: {exp}", "loc": "left"}],
         **heat_configs,
     )
 
@@ -289,7 +287,7 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
         fig_dir / "hr.png",
         hr.transpose(),
         cmap=cmap_scalar,
-        title="Hit Rate",
+        title_configs=[{"label": f"Hit Rate: {exp}", "loc": "left"}],
         **heat_configs,
     )
 
@@ -297,7 +295,7 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
         fig_dir / "sr.png",
         sr.transpose(),
         cmap=cmap_scalar,
-        title="Success Ratio",
+        title_configs=[{"label": f"Success Ratio: {exp}", "loc": "left"}],
         **heat_configs,
     )
 
@@ -305,7 +303,7 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
         fig_dir / "far.png",
         far.transpose(),
         cmap=cmap_scalar,
-        title="False Alarm Rate",
+        title_configs=[{"label": f"False Alarm Rate: {exp}", "loc": "left"}],
         **heat_configs,
     )
 
@@ -313,8 +311,6 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
     pressure_edges = np.concatenate([[1050], np.diff(z_tar) / 2 + z_tar[:-1], [0]])
 
     for var in vars:
-        var_title = rf"${var[0].capitalize()}_{var[1]}$"
-
         for source in sources:
             prob = q_counts[source][var] / sample_th
 
@@ -327,7 +323,13 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
                 **cfad_value_configs,
             )
             plotter.plot_label(
-                title=f"{var_title}: {source.capitalize()}", **label_configs
+                title_configs=[
+                    {
+                        "label": rf"${var[0].capitalize()}_{var[1]}$: {source_to_title[source]}",
+                        "loc": "left",
+                    }
+                ],
+                **label_configs,
             )
             plotter.save(fig_dir / f"cfad_{var}_{source}.png")
 
@@ -356,7 +358,15 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
             assign_ctick=True,
             ctick_format="{:.0e}",
         )
-        plotter.plot_label(title=f"{var_title}: Prediction - Target", **label_configs)
+        plotter.plot_label(
+            title_configs=[
+                {
+                    "label": rf"${var[0].capitalize()}_{var[1]}$: Diff",
+                    "loc": "left",
+                }
+            ],
+            **label_configs,
+        )
         plotter.save(fig_dir / f"cfad_{var}_diff.png")
 
         plotter = GridPlotter()
@@ -365,14 +375,21 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
             pressure_edges,
             ((prediction_prob - target_prob) / target_prob).transpose() * 100,
             cmap=cmap_diff,
+            vmin=-100,
+            vmax=100,
             extend="both",
-            bounds=[-1e2, -1e1, -1e0, -1e-1, 1e-1, 1e0, 1e1, 1e2],
             nan_color=nan_color,
             cbar_label="%",
-            assign_ctick=True,
-            ctick_format="{:.0e}",
         )
-        plotter.plot_label(title=f"{var_title}: (Pred - Tar) / Tar", **label_configs)
+        plotter.plot_label(
+            title_configs=[
+                {
+                    "label": rf"${var[0].capitalize()}_{var[1]}$: Relative Diff",
+                    "loc": "left",
+                }
+            ],
+            **label_configs,
+        )
         plotter.save(fig_dir / f"cfad_{var}_rdiff.png")
 
     # Histogram
@@ -382,10 +399,10 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
             plotter.plot_bar(
                 wp_bins[:-1],
                 wp_counts[source][wp] / sample_th,
-                label=source.capitalize(),
+                label=source_to_title[source],
                 **bin_configs,
             )
-        plotter.plot_label(title=wp.upper())
+        plotter.plot_label(title_configs=[{"label": wp.upper(), "loc": "left"}])
         plotter.save(fig_dir / f"{wp}.png")
 
     # Profile
@@ -407,7 +424,7 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
         extend="max",
         assign_ctick=True,
         ctick_format="{:.0e}",
-        title="MAE",
+        title_configs=[{"label": f"MAE: {exp}", "loc": "left"}],
         **heat_configs,
     )
 
@@ -421,7 +438,7 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
         cbar_label="%",
         assign_ctick=True,
         ctick_format="{:.0e}",
-        title="Relative MAE",
+        title_configs=[{"label": f"Relative MAE: {exp}", "loc": "left"}],
         **heat_configs,
     )
 
@@ -433,7 +450,7 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
         extend="both",
         assign_ctick=True,
         ctick_format="{:.0e}",
-        title="BIAS",
+        title_configs=[{"label": f"Bias: {exp}", "loc": "left"}],
         **heat_configs,
     )
 
@@ -447,7 +464,7 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
         nan_color=nan_color,
         assign_ctick=True,
         ctick_format="{:.0e}",
-        title="Relative BIAS",
+        title_configs=[{"label": f"Relative Bias: {exp}", "loc": "left"}],
         **heat_configs,
     )
 

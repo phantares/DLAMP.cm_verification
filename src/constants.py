@@ -1,4 +1,5 @@
 GRAVITY = 9.80665
+R = 6371.0088  # km
 STANDARD_LEVEL = [
     1000,
     925,

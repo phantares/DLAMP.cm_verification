@@ -7,7 +7,7 @@ import numpy as np
 class PDPlotter:
     def __init__(
         self,
-        title: str = "Performance diagram",
+        title_configs: Sequence[dict] = [{"label": "Performance Diagram"}],
     ) -> None:
 
         self.fig, self.ax = plt.subplots(1, 1, figsize=(10, 7.5), facecolor="w")
@@ -22,7 +22,7 @@ class PDPlotter:
 
         self._plot_background()
 
-        self.ax.set_title(title)
+        [self.ax.set_title(**title_config) for title_config in title_configs]
 
     def plot(
         self,
