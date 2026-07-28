@@ -18,14 +18,14 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
     fig_dir.mkdir(parents=True, exist_ok=True)
 
     data_dir = Path(env.get("DATA_DIR"), exp)
-    files = sorted(data_dir.glob("*.h5"))
+    files = sorted(data_dir.glob("*02.h5"))
 
     with open(data_dir / "config.yaml", "r", encoding="utf-8") as f:
         configs = yaml.safe_load(f)
     use_mask = configs["model"]["system"]["use_mask"]
     data_configs = configs["dataset"]["var"]
 
-    vars = data_configs["target"]
+    vars = data_configs["target"][2:4]
     sample_var = len(vars)
     annots = [var[1].capitalize() for var in vars] + ["A"]
     vars_all = vars + ["all"]
@@ -37,7 +37,7 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
     standard_indices = [z_tar.index(z) for z in STANDARD_LEVEL]
 
     sample_t = 0
-    sample_r = {var: np.zeros(sample_z) for var in vars}
+    sample_r = {var: 0 for var in vars}
 
     hits = {var: np.zeros(sample_z) for var in vars}
     misses = {var: np.zeros(sample_z) for var in vars}
@@ -58,11 +58,9 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
     }
 
     mae = {var: np.zeros(sample_z) for var in vars}
-    sum_abs_diff = {var: np.zeros(sample_z) for var in vars}
     r_mae = {var: np.zeros(sample_z) for var in vars}
     bias = {var: np.zeros(sample_z) for var in vars}
     r_bias = {var: np.zeros(sample_z) for var in vars}
-    sum_diff = {var: np.zeros(sample_z) for var in vars}
 
     stats_metrics = ["Mean", "Std"]
     comparison_metrics = ["MAE", "RelativeMAE", "Bias", "RelativeBias"]
@@ -123,15 +121,8 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
                     q_counts["target"][var][:, k] += calculate_bin(q_bins, tar)
 
                     diff = pred - tar
-                    valid_r = tar > 0
-                    sample_r[var][k] += np.sum(valid_r.astype(int))
-                    r_diff = diff[valid_r]
-                    r_tar = tar[valid_r]
-
                     mae[var][k] += np.sum(np.abs(diff))
-                    sum_abs_diff[var][k] += np.sum(np.abs(r_diff) / r_tar)
                     bias[var][k] += np.sum(diff)
-                    sum_diff[var][k] += np.sum(r_diff / r_tar)
 
             sample_t += np.size(data, 0)
 
@@ -158,25 +149,20 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
                 - stats[source][var]["Mean"] ** 2
             )
 
-        valid_r = sample_r[var] > 0
+        valid_r = mean["target"][var] > 0
+        sample_r[var] = np.sum(valid_r)
 
         mae[var] = mae[var] / sample_th
         comparisons[var]["MAE"] = np.sum(mae[var]) / sample_z
 
-        r_mae[var][valid_r] = sum_abs_diff[var][valid_r] / sample_r[var][valid_r]
-        r_mae[var][~valid_r] = np.nan
-        comparisons[var]["RelativeMAE"] = (
-            np.sum(sum_abs_diff[var][valid_r]) / np.sum(sample_r[var][valid_r]) * 100
-        )
+        r_mae[var][valid_r] = mae[var][valid_r] / mean["target"][var][valid_r]
+        comparisons[var]["RelativeMAE"] = np.sum(r_mae[var]) / sample_r[var] 
 
         bias[var] = bias[var] / sample_th
         comparisons[var]["Bias"] = np.sum(bias[var]) / sample_z
 
-        r_bias[var][valid_r] = sum_diff[var][valid_r] / sample_r[var][valid_r]
-        r_bias[var][~valid_r] = np.nan
-        comparisons[var]["RelativeBias"] = (
-            np.sum(sum_diff[var][valid_r]) / np.sum(sample_r[var][valid_r]) * 100
-        )
+        r_bias[var][valid_r] = bias[var][valid_r] / mean["target"][var][valid_r]
+        comparisons[var]["RelativeBias"] = np.sum(r_bias[var]) / sample_r[var] 
 
     for source in sources:
         stats[source]["all"]["Mean"] = np.sum(list(mean[source].values())) / (
@@ -187,14 +173,10 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
             - stats[source]["all"]["Mean"] ** 2
         )
     comparisons["all"]["MAE"] = np.sum(list(mae.values())) / (sample_z * sample_var)
-    comparisons["all"]["RelativeMAE"] = (
-        np.sum(list(sum_abs_diff.values())) / np.sum(list(sample_r.values())) * 100
-    )
+    comparisons["all"]["RelativeMAE"] = np.sum(list(r_mae.values())) / np.sum(list(sample_r.values()))
 
     comparisons["all"]["Bias"] = np.sum(list(bias.values())) / (sample_z * sample_var)
-    comparisons["all"]["RelativeBias"] = (
-        np.sum(list(sum_diff.values())) / np.sum(list(sample_r.values())) * 100
-    )
+    comparisons["all"]["RelativeBias"] = np.sum(list(r_bias.values())) / np.sum(list(sample_r.values()))
 
     rows = {}
 

@@ -42,8 +42,7 @@ curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj bin/mi
 ```bash
 mamba create -n wrf-env python=3.10 -y
 mamba activate wrf-env
-mamba install -c conda-forge wrf-python netcdf4 xarray h5py pyyaml python-dotenv
- -y
+mamba install -c conda-forge wrf-python netcdf4 xarray h5py pyyaml python-dotenv -y
 ```
 
 **Running scripts that depend on wrf-python:**
