@@ -24,7 +24,7 @@ class BarPlotter:
         ylabel: str = "Probability",
         yticks: Sequence | None = None,
         yticklabels: Sequence[str] | None = None,
-        title: str = "Distribution",
+        title_configs: Sequence[dict] = [{"label": "Distribution"}],
     ) -> None:
 
         configure_axis(
@@ -48,7 +48,7 @@ class BarPlotter:
         )
 
         self.ax.legend()
-        self.ax.set_title(title)
+        [self.ax.set_title(**title_config) for title_config in title_configs]
 
     def save(self, filename) -> None:
         plt.savefig(filename, dpi=300, bbox_inches="tight")

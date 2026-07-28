@@ -15,6 +15,7 @@ def plot_heat_map(
     bounds: Sequence[float] | None = None,
     extend: str = "neither",
     nan_color: str | None = None,
+    under_color: str | None = None,
     cbar_log_scale: bool = False,
     cbar_label: str | None = None,
     assign_ctick: bool = False,
@@ -25,12 +26,20 @@ def plot_heat_map(
     ylabel: str = "Pressure (hPa)",
     yticks: Sequence | None = None,
     yticklabels: Sequence[str] | None = None,
-    title: str = "Heat Map",
+    title_configs: Sequence[dict] = [{"label": "Heat Map"}],
 ) -> None:
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 7.5), facecolor="w")
     cbar_configurer = DiscreteColorbar(
-        cmap, vmin, vmax, ncolors, bounds, extend, nan_color, cbar_log_scale
+        cmap,
+        vmin,
+        vmax,
+        ncolors,
+        bounds,
+        extend,
+        nan_color,
+        under_color,
+        cbar_log_scale,
     )
 
     img = ax.imshow(
@@ -47,7 +56,7 @@ def plot_heat_map(
     configure_axis(ax, "x", label=xlabel, ticks=xticks, ticklabels=xticklabels)
     configure_axis(ax, "y", label=ylabel, ticks=yticks, ticklabels=yticklabels)
 
-    ax.set_title(title)
+    [ax.set_title(**title_config) for title_config in title_configs]
 
     plt.savefig(filename, dpi=300, bbox_inches="tight")
     plt.close(fig)

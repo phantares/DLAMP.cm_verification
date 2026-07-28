@@ -21,6 +21,7 @@ class GridPlotter:
         bounds: Sequence[float] | None = None,
         extend: str = "neither",
         nan_color: str | None = None,
+        under_color: str | None = None,
         cbar_log_scale: bool = False,
         cbar_label: str = "Frequency",
         assign_ctick: bool = False,
@@ -28,7 +29,15 @@ class GridPlotter:
     ) -> None:
 
         cbar_configurer = DiscreteColorbar(
-            cmap, vmin, vmax, ncolors, bounds, extend, nan_color, cbar_log_scale
+            cmap,
+            vmin,
+            vmax,
+            ncolors,
+            bounds,
+            extend,
+            nan_color,
+            under_color,
+            cbar_log_scale,
         )
 
         mesh = self.ax.pcolormesh(
@@ -66,7 +75,7 @@ class GridPlotter:
         yticks: Sequence | None = None,
         yticklabels: Sequence[str] | None = None,
         plot_legend: bool = True,
-        title: str = "Grid",
+        title_configs: Sequence[dict] = [{"label": "Grid"}],
     ) -> None:
 
         configure_axis(
@@ -92,7 +101,7 @@ class GridPlotter:
         if plot_legend:
             self.ax.legend()
 
-        self.ax.set_title(title)
+        [self.ax.set_title(**title_config) for title_config in title_configs]
 
     def save(self, filename) -> None:
         plt.savefig(filename, dpi=300, bbox_inches="tight")

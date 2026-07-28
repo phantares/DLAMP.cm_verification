@@ -5,6 +5,8 @@ import matplotlib.ticker as ticker
 import numpy as np
 from matplotlib.colors import BoundaryNorm, ListedColormap
 
+from . import radar_dbz_cmap_module  # noqa: F401
+
 
 class DiscreteColorbar:
     def __init__(
@@ -16,6 +18,7 @@ class DiscreteColorbar:
         bounds: Sequence[float] | None = None,
         extend: str = "neither",
         nan_color: str | None = None,
+        under_color: str | None = None,
         log_scale: bool = False,
     ) -> None:
 
@@ -28,6 +31,8 @@ class DiscreteColorbar:
         self.cmap = ListedColormap(plt.colormaps[cmap](np.linspace(0, 1, ncolors)))
         if nan_color is not None:
             self.cmap.set_bad(color=nan_color)
+        if under_color is not None:
+            self.cmap.set_under(color=under_color)
 
     def _compute_bounds(
         self,
