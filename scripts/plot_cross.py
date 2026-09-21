@@ -11,11 +11,14 @@ from constants import STANDARD_LEVEL
 from dotenv import dotenv_values
 from plotters import GridPlotter
 from scipy.interpolate import griddata
+from utils import find_data_files
 
 
 def main(
     exp: str,
+    data_source: str,
     target_time: datetime,
+    initial_time: datetime | None,
     start_point: Sequence[float],
     end_point: Sequence[float],
     mask_threshold: float = 0.5,
@@ -23,11 +26,11 @@ def main(
 
     env = dotenv_values(".env")
 
-    fig_dir = Path(env.get("FIG_DIR"), exp, "cases")
+    fig_dir = Path(env.get("FIG_DIR"), exp, "cases", target_time.strftime("%Y%m%d%H"))
     fig_dir.mkdir(parents=True, exist_ok=True)
 
     data_dir = Path(env.get("DATA_DIR"), exp)
-    file = data_dir / f"{target_time.strftime('%Y%m')}.h5"
+    file = find_data_files(data_dir, data_source, target_time, initial_time)[0]
 
     with open(data_dir / "config.yaml", "r", encoding="utf-8") as f:
         configs = yaml.safe_load(f)
@@ -39,7 +42,18 @@ def main(
     thresholds["dbz"] = 0
 
     sources = ["prediction", "target"]
-    source_to_title = {"prediction": exp, "target": "RWRF"}
+    source_to_title = {
+        "prediction": exp
+        if data_source == "testing"
+        else f"{exp}\n{data_source}: {initial_time.strftime('%Y%m%d %H')}Z",
+        "target": "RWRF",
+    }
+    source_to_name = {
+        "prediction": "prediction"
+        if data_source == "testing"
+        else f"{data_source}_{initial_time.strftime('%Y%m%d%H')}",
+        "target": "target",
+    }
 
     var_to_plot = {
         "qi": "q",
@@ -131,13 +145,13 @@ def main(
                 )
                 plotter.save(
                     fig_dir
-                    / f"{target_time.strftime('%Y%m%d%H')}_cross_{title}_{source}_{start_point[0]}N{start_point[1]}E_{end_point[0]}N{end_point[1]}E.png"
+                    / f"{target_time.strftime('%Y%m%d%H')}_cross_{title}_{source_to_name[source]}_{start_point[0]}N{start_point[1]}E_{end_point[0]}N{end_point[1]}E.png"
                 )
 
 
 def get_cross_xaxis(start_point, end_point, lat_cs, lon_cs, nticks=6):
     if abs(start_point[0] - end_point[0]) < 1e-6:
-        return lon_cs, {"xlabal": "Longitude (°E)"}
+        return lon_cs, {"xlabel": "Longitude (°E)"}
     elif abs(start_point[1] - end_point[1]) < 1e-6:
         return lat_cs, {"xlabel": "Latitude (°N)"}
 
@@ -175,6 +189,19 @@ if __name__ == "__main__":
         help="Enter end point (lat, lon)",
     )
     parser.add_argument(
+        "--source",
+        "-s",
+        type=str,
+        default="testing",
+        help="Enter input source name.",
+    )
+    parser.add_argument(
+        "--initial_time",
+        "-i",
+        type=str,
+        help="Enter initial time of prediction in format YYYYmmddHH.",
+    )
+    parser.add_argument(
         "--mask",
         type=float,
         default=0.5,
@@ -182,9 +209,17 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    initial_time = (
+        datetime.strptime(args.initial_time, "%Y%m%d%H").replace(tzinfo=timezone.utc)
+        if args.initial_time
+        else None
+    )
+
     main(
         args.exp,
+        args.source,
         datetime.strptime(args.time, "%Y%m%d%H").replace(tzinfo=timezone.utc),
+        initial_time,
         args.start_point,
         args.end_point,
         mask_threshold=args.mask,

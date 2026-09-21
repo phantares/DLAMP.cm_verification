@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime, timezone
 from pathlib import Path
 
 import h5py as h5
@@ -9,23 +10,26 @@ from calculators import DetectionCalculator, calculate_bin, calculate_water_path
 from constants import STANDARD_LEVEL, WPS, q_bins, wp_bins
 from dotenv import dotenv_values
 from plotters import BarPlotter, GridPlotter, PDPlotter, plot_heat_map, plot_profile
+from utils import find_data_files
 
 
-def main(exp: str, mask_threshold: float = 0.5) -> None:
+def main(
+    exp: str, data_source: str, initial_time: datetime, mask_threshold: float = 0.5
+) -> None:
     env = dotenv_values(".env")
 
-    fig_dir = Path(env.get("FIG_DIR"), exp)
+    fig_dir = Path(env.get("FIG_DIR"), exp, "statistics")
     fig_dir.mkdir(parents=True, exist_ok=True)
 
     data_dir = Path(env.get("DATA_DIR"), exp)
-    files = sorted(data_dir.glob("*02.h5"))
+    files = find_data_files(data_dir, data_source, initial_time=initial_time)
 
     with open(data_dir / "config.yaml", "r", encoding="utf-8") as f:
         configs = yaml.safe_load(f)
     use_mask = configs["model"]["system"]["use_mask"]
     data_configs = configs["dataset"]["var"]
 
-    vars = data_configs["target"][2:4]
+    vars = data_configs["target"]
     sample_var = len(vars)
     annots = [var[1].capitalize() for var in vars] + ["A"]
     vars_all = vars + ["all"]
@@ -156,13 +160,13 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
         comparisons[var]["MAE"] = np.sum(mae[var]) / sample_z
 
         r_mae[var][valid_r] = mae[var][valid_r] / mean["target"][var][valid_r]
-        comparisons[var]["RelativeMAE"] = np.sum(r_mae[var]) / sample_r[var] 
+        comparisons[var]["RelativeMAE"] = np.sum(r_mae[var]) / sample_r[var]
 
         bias[var] = bias[var] / sample_th
         comparisons[var]["Bias"] = np.sum(bias[var]) / sample_z
 
         r_bias[var][valid_r] = bias[var][valid_r] / mean["target"][var][valid_r]
-        comparisons[var]["RelativeBias"] = np.sum(r_bias[var]) / sample_r[var] 
+        comparisons[var]["RelativeBias"] = np.sum(r_bias[var]) / sample_r[var]
 
     for source in sources:
         stats[source]["all"]["Mean"] = np.sum(list(mean[source].values())) / (
@@ -173,10 +177,14 @@ def main(exp: str, mask_threshold: float = 0.5) -> None:
             - stats[source]["all"]["Mean"] ** 2
         )
     comparisons["all"]["MAE"] = np.sum(list(mae.values())) / (sample_z * sample_var)
-    comparisons["all"]["RelativeMAE"] = np.sum(list(r_mae.values())) / np.sum(list(sample_r.values()))
+    comparisons["all"]["RelativeMAE"] = np.sum(list(r_mae.values())) / np.sum(
+        list(sample_r.values())
+    )
 
     comparisons["all"]["Bias"] = np.sum(list(bias.values())) / (sample_z * sample_var)
-    comparisons["all"]["RelativeBias"] = np.sum(list(r_bias.values())) / np.sum(list(sample_r.values()))
+    comparisons["all"]["RelativeBias"] = np.sum(list(r_bias.values())) / np.sum(
+        list(sample_r.values())
+    )
 
     rows = {}
 
@@ -460,6 +468,19 @@ if __name__ == "__main__":
         help="Enter experiment name.",
     )
     parser.add_argument(
+        "--source",
+        "-s",
+        type=str,
+        default="testing",
+        help="Enter data source name.",
+    )
+    parser.add_argument(
+        "--initial_time",
+        "-i",
+        type=str,
+        help="Enter initial time of prediction in format YYYYmmddHH.",
+    )
+    parser.add_argument(
         "--mask",
         type=float,
         default=0.5,
@@ -467,4 +488,10 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    main(args.exp, mask_threshold=args.mask)
+    initial_time = (
+        datetime.strptime(args.initial_time, "%Y%m%d%H").replace(tzinfo=timezone.utc)
+        if args.initial_time
+        else None
+    )
+
+    main(args.exp, args.source, initial_time, mask_threshold=args.mask)

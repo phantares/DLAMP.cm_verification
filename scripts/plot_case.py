@@ -9,22 +9,25 @@ import yaml
 from calculators import calculate_water_path
 from dotenv import dotenv_values
 from plotters import plot_map
+from utils import find_data_files
 
 
 def main(
     exp: str,
+    data_source: str,
     target_time: datetime,
+    initial_time: datetime | None,
     extent: Sequence[float] | None,
     mask_threshold: float = 0.5,
 ) -> None:
 
     env = dotenv_values(".env")
 
-    fig_dir = Path(env.get("FIG_DIR"), exp, "cases")
+    fig_dir = Path(env.get("FIG_DIR"), exp, "cases", target_time.strftime("%Y%m%d%H"))
     fig_dir.mkdir(parents=True, exist_ok=True)
 
     data_dir = Path(env.get("DATA_DIR"), exp)
-    file = data_dir / f"{target_time.strftime('%Y%m')}.h5"
+    file = find_data_files(data_dir, data_source, target_time, initial_time)[0]
 
     with open(data_dir / "config.yaml", "r", encoding="utf-8") as f:
         configs = yaml.safe_load(f)
@@ -36,6 +39,19 @@ def main(
     thresholds["dbz"] = 0
 
     sources = ["prediction", "target"]
+    source_to_title = {
+        "prediction": exp
+        if data_source == "testing"
+        else f"{exp}\n{data_source}: {initial_time.strftime('%Y%m%d %H')}Z",
+        "target": "RWRF",
+    }
+    source_to_name = {
+        "prediction": "prediction"
+        if data_source == "testing"
+        else f"{data_source}_{initial_time.strftime('%Y%m%d%H')}",
+        "target": "target",
+    }
+
     plot_vars = ["IWP", "LWP", "Radar"]
     var_to_plot = {
         "qi": "IWP",
@@ -81,6 +97,7 @@ def main(
                         target_index, :, i0 : i1 + 1, j0 : j1 + 1
                     ]
                     data[mask <= mask_threshold] = 0
+                print(np.amax(data))
 
                 datas[source][var_to_plot.get(var, var)] += data
 
@@ -107,13 +124,16 @@ def main(
 
             plot_map(
                 fig_dir
-                / f"{target_time.strftime('%Y%m%d%H')}_{var.lower()}_{source}.png",
+                / f"{target_time.strftime('%Y%m%d%H')}_{var.lower()}_{source_to_name[source]}.png",
                 data,
                 lat,
                 lon,
                 extent=extent,
                 title_configs=[
-                    {"label": f"{exp}\n{var}: {source.capitalize()}", "loc": "left"},
+                    {
+                        "label": f"{var}: {source_to_title[source]}",
+                        "loc": "left",
+                    },
                     {
                         "label": target_time.strftime("%Y-%m-%d %HUTC"),
                         "loc": "right",
@@ -143,6 +163,19 @@ if __name__ == "__main__":
         help="Enter target time in format YYYYmmddHH",
     )
     parser.add_argument(
+        "--source",
+        "-s",
+        type=str,
+        default="testing",
+        help="Enter input source name.",
+    )
+    parser.add_argument(
+        "--initial_time",
+        "-i",
+        type=str,
+        help="Enter initial time of prediction in format YYYYmmddHH.",
+    )
+    parser.add_argument(
         "--extent",
         "-e",
         type=extent_type,
@@ -167,9 +200,17 @@ if __name__ == "__main__":
             "--extent must be either 'None' or exactly 4 numbers (left right bottom top)"
         )
 
+    initial_time = (
+        datetime.strptime(args.initial_time, "%Y%m%d%H").replace(tzinfo=timezone.utc)
+        if args.initial_time
+        else None
+    )
+
     main(
         args.exp,
+        args.source,
         datetime.strptime(args.time, "%Y%m%d%H").replace(tzinfo=timezone.utc),
+        initial_time,
         extent=args.extent,
         mask_threshold=args.mask,
     )
