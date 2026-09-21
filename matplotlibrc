@@ -1,0 +1,28 @@
+# matplotlibrc
+
+# ── color map ──────────────────────────────
+image.cmap : viridis
+
+# ── font size ────────────────────────────────
+font.size        : 12
+axes.titlesize   : 14
+axes.labelsize   : 12
+xtick.labelsize  : 10
+ytick.labelsize  : 10
+
+# ── line width and marker size ────────────────────────────────
+lines.linewidth  : 1.8
+lines.markersize : 5
+
+# ── color cycle (Wong color blind friendly 7 colors) ────────
+axes.prop_cycle : cycler('color', ['E69F00', '56B4E9', '009E73', 'F0E442', '0072B2', 'D55E00', 'CC79A7'])
+
+# ── grid ────────────────────────────────
+axes.grid       : True
+grid.alpha      : 0.3
+grid.linestyle  : --
+
+# ── image output ────────────────────────────
+figure.dpi      : 150
+savefig.dpi     : 300
+savefig.bbox    : tight
