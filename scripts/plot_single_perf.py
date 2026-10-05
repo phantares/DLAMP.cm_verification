@@ -22,7 +22,7 @@ def main(
     fig_dir.mkdir(parents=True, exist_ok=True)
 
     data_dir = Path(env.get("DATA_DIR"), exp)
-    files = find_data_files(data_dir, data_source, initial_time=initial_time)
+    files = find_data_files(data_dir / data_source, initial_time=initial_time)
 
     with open(data_dir / "config.yaml", "r", encoding="utf-8") as f:
         configs = yaml.safe_load(f)

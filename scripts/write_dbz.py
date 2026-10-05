@@ -25,7 +25,7 @@ def main(
     env = dotenv_values(".env")
 
     data_dir = Path(env.get("DATA_DIR"), exp)
-    files = find_data_files(data_dir, data_source, initial_time=initial_time)
+    files = find_data_files(data_dir / data_source, initial_time=initial_time)
 
     sources = ["prediction", "target"]
     vars = ["qr", "qs", "qg"]
@@ -93,7 +93,11 @@ def main(
                 datas["prediction"]["tk"] = tk
                 datas["prediction"]["qv"] = qv
             else:
-                with h5.File(input_dir / file.name, "r") as fin:
+                output_file = find_data_files(
+                    input_dir, target_time=time[0], initial_time=initial_time
+                )[0]
+
+                with h5.File(input_dir / output_file, "r") as fin:
                     p_in = fin["pressure"][:]
                     lon_in = fin["longitude"][:]
                     lat_in = fin["latitude"][:]

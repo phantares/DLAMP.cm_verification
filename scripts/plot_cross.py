@@ -11,7 +11,7 @@ from constants import STANDARD_LEVEL
 from dotenv import dotenv_values
 from plotters import GridPlotter
 from scipy.interpolate import griddata
-from utils import find_data_files
+from utils import find_data_files, get_prediction_title
 
 
 def main(
@@ -30,7 +30,7 @@ def main(
     fig_dir.mkdir(parents=True, exist_ok=True)
 
     data_dir = Path(env.get("DATA_DIR"), exp)
-    file = find_data_files(data_dir, data_source, target_time, initial_time)[0]
+    file = find_data_files(data_dir / data_source, target_time, initial_time)[0]
 
     with open(data_dir / "config.yaml", "r", encoding="utf-8") as f:
         configs = yaml.safe_load(f)
@@ -42,18 +42,11 @@ def main(
     thresholds["dbz"] = 0
 
     sources = ["prediction", "target"]
-    source_to_title = {
-        "prediction": exp
-        if data_source == "testing"
-        else f"{exp}\n{data_source}: {initial_time.strftime('%Y%m%d %H')}Z",
-        "target": "RWRF",
-    }
-    source_to_name = {
-        "prediction": "prediction"
-        if data_source == "testing"
-        else f"{data_source}_{initial_time.strftime('%Y%m%d%H')}",
-        "target": "target",
-    }
+    prediction_title, prediction_name = get_prediction_title(
+        exp, data_source, initial_time
+    )
+    source_to_title = {"prediction": prediction_title, "target": "RWRF"}
+    source_to_name = {"prediction": prediction_name, "target": "target"}
 
     var_to_plot = {
         "qi": "q",
