@@ -38,6 +38,9 @@ def main(
     data_configs = configs["dataset"]["var"]
 
     vars = data_configs["target"] + ["dbz"]
+    vars_title = [
+        rf"${var[0].capitalize()}_{var[1]}$" for var in data_configs["target"]
+    ] + ["Radar"]
     thresholds = data_configs["threshold"]
     thresholds["dbz"] = 0
 
@@ -76,6 +79,7 @@ def main(
             "cbar_label": "dBZ",
         },
     }
+    cloud = {source: 0 for source in sources}
     with h5.File(file, "r") as f:
         times = [datetime.fromisoformat(t.decode("utf-8")) for t in f["time"]]
         target_index = next((i for i, t in enumerate(times) if t == target_time), None)
@@ -89,7 +93,7 @@ def main(
         cross = np.column_stack([lon_cs, lat_cs])
         points = np.column_stack([lon.ravel(), lat.ravel()])
 
-        for var in vars:
+        for v, var in enumerate(vars):
             print(var)
 
             for source in sources:
@@ -109,6 +113,9 @@ def main(
                         method="nearest",
                     )
 
+                if var != "dbz":
+                    cloud[source] += cross_data
+
                 title = "radar" if var == "dbz" else var
                 plotter = GridPlotter()
                 xaxis, x_configs = get_cross_xaxis(
@@ -126,7 +133,7 @@ def main(
                     plot_legend=False,
                     title_configs=[
                         {
-                            "label": rf"${var[0].capitalize()}_{var[1]}$: {source_to_title[source]}",
+                            "label": f"{vars_title[v]}: {source_to_title[source]}",
                             "loc": "left",
                         },
                         {
@@ -140,6 +147,36 @@ def main(
                     fig_dir
                     / f"{target_time.strftime('%Y%m%d%H')}_cross_{title}_{source_to_name[source]}_{start_point[0]}N{start_point[1]}E_{end_point[0]}N{end_point[1]}E.png"
                 )
+
+        for source in sources:
+            plotter = GridPlotter()
+            xaxis, x_configs = get_cross_xaxis(start_point, end_point, lat_cs, lon_cs)
+            plotter.plot_pcolor(
+                xaxis,
+                pressure,
+                cloud[source],
+                **plot_configs["q"],
+            )
+            plotter.plot_label(
+                x_log_scale=False,
+                yticks=STANDARD_LEVEL[:-4] + STANDARD_LEVEL[-3:-2],
+                plot_legend=False,
+                title_configs=[
+                    {
+                        "label": f"Cloud: {source_to_title[source]}",
+                        "loc": "left",
+                    },
+                    {
+                        "label": target_time.strftime("%Y-%m-%d %HUTC"),
+                        "loc": "right",
+                    },
+                ],
+                **x_configs,
+            )
+            plotter.save(
+                fig_dir
+                / f"{target_time.strftime('%Y%m%d%H')}_cross_cloud_{source_to_name[source]}_{start_point[0]}N{start_point[1]}E_{end_point[0]}N{end_point[1]}E.png"
+            )
 
 
 def get_cross_xaxis(start_point, end_point, lat_cs, lon_cs, nticks=6):
