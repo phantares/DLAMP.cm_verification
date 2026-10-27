@@ -6,10 +6,19 @@ import h5py as h5
 import numpy as np
 import pandas as pd
 import yaml
-from calculators import DetectionCalculator, calculate_bin, calculate_water_path
+from calculators import (
+    DetectionCalculator,
+    calculate_bin,
+    calculate_isotropic_spectrum_sum,
+    calculate_vertical_wasserstein,
+    calculate_water_path,
+    get_spectrum_wavelength,
+    smooth_spectrum,
+)
 from constants import STANDARD_LEVEL, WPS, q_bins, wp_bins
 from dotenv import dotenv_values
 from plotters import BarPlotter, GridPlotter, PDPlotter, plot_heat_map, plot_profile
+from scipy.stats import wasserstein_distance
 from utils import find_data_files
 
 
@@ -24,8 +33,12 @@ def main(
     data_dir = Path(env.get("DATA_DIR"), exp)
     files = find_data_files(data_dir / data_source, initial_time=initial_time)
 
+    sources = ["prediction", "target"]
+    source_to_title = {"prediction": exp, "target": "RWRF"}
+
     with open(data_dir / "config.yaml", "r", encoding="utf-8") as f:
         configs = yaml.safe_load(f)
+    grid_spacing = configs["dataset"]["res"]["resolution_target"]
     use_mask = configs["model"]["system"]["use_mask"]
     data_configs = configs["dataset"]["var"]
 
@@ -42,17 +55,15 @@ def main(
 
     sample_t = 0
     sample_r = {var: 0 for var in vars}
+    sample_c = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
+    sample_w = {var: 0 for var in vars_all}
 
     hits = {var: np.zeros(sample_z) for var in vars}
     misses = {var: np.zeros(sample_z) for var in vars}
     fas = {var: np.zeros(sample_z) for var in vars}
     crs = {var: np.zeros(sample_z) for var in vars}
+    std_r = {var: np.zeros(sample_z) for var in vars}
 
-    sources = ["prediction", "target"]
-    source_to_title = {"prediction": exp, "target": "RWRF"}
-    mean = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
-    square = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
-    std = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
     q_counts = {
         source: {var: np.zeros((len(q_bins) - 1, sample_z)) for var in vars}
         for source in sources
@@ -60,6 +71,14 @@ def main(
     wp_counts = {
         source: {wp: np.zeros(len(wp_bins) - 1) for wp in WPS} for source in sources
     }
+    spectrum_counts = {source: {wp: 0 for wp in WPS} for source in sources}
+    spectrum_energy = {source: {wp: 0 for wp in WPS} for source in sources}
+
+    mean = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
+    square = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
+    std = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
+    c_mean = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
+    c_std = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
 
     mae = {var: np.zeros(sample_z) for var in vars}
     r_mae = {var: np.zeros(sample_z) for var in vars}
@@ -67,7 +86,7 @@ def main(
     r_bias = {var: np.zeros(sample_z) for var in vars}
 
     stats_metrics = ["Mean", "Std"]
-    comparison_metrics = ["MAE", "RelativeMAE", "Bias", "RelativeBias"]
+    comparison_metrics = ["MAE", "RelativeMAE", "Bias", "RelativeBias", "VerticalWD"]
     stats = {
         source: {var: {metric: 0.0 for metric in stats_metrics} for var in vars_all}
         for source in sources
@@ -84,6 +103,8 @@ def main(
         wps = {source: {wp: 0 for wp in WPS} for source in sources}
 
         with h5.File(file, "r") as f:
+            cloud = {source: 0 for source in sources}
+
             for var in vars:
                 print(var)
 
@@ -103,16 +124,25 @@ def main(
 
                     datas[source] = data
                     wps[source][wp] += data
+                    cloud[source] += data
 
                     axes_to_sum = tuple(
                         i for i in range(data.ndim) if i != data.ndim - 3
                     )
                     mean[source][var] += np.sum(data, axis=axes_to_sum)
                     square[source][var] += np.sum(data**2, axis=axes_to_sum)
+                wd_sum, wd_sample = calculate_vertical_wasserstein(
+                    datas["prediction"], datas["target"], z_tar
+                )
+                comparisons[var]["VerticalWD"] += wd_sum
+                sample_w[var] += wd_sample
 
                 for k in range(sample_z):
                     pred = datas["prediction"][..., k, :, :]
                     tar = datas["target"][..., k, :, :]
+
+                    sample_c["prediction"][var][k] += np.sum(pred > 0)
+                    sample_c["target"][var][k] += np.sum(tar > 0)
 
                     detection = DetectionCalculator(pred, tar, [0])
 
@@ -121,8 +151,10 @@ def main(
                     fas[var][k] += detection.false_alarms[0]
                     crs[var][k] += detection.correct_rejections[0]
 
-                    q_counts["prediction"][var][:, k] += calculate_bin(q_bins, pred)
-                    q_counts["target"][var][:, k] += calculate_bin(q_bins, tar)
+                    q_counts["prediction"][var][:, k] += calculate_bin(
+                        q_bins, pred[pred > 0]
+                    )
+                    q_counts["target"][var][:, k] += calculate_bin(q_bins, tar[tar > 0])
 
                     diff = pred - tar
                     mae[var][k] += np.sum(np.abs(diff))
@@ -132,9 +164,23 @@ def main(
 
             for wp in WPS:
                 for source in sources:
-                    wp_counts[source][wp] += calculate_bin(
-                        wp_bins, calculate_water_path(wps[source][wp], z_tar)
+                    wp_value = calculate_water_path(wps[source][wp], z_tar)
+
+                    s_energy, s_count = calculate_isotropic_spectrum_sum(
+                        wp_value, grid_spacing
                     )
+                    spectrum_energy[source][wp] += s_energy
+                    spectrum_counts[source][wp] += s_count
+
+                    wp_counts[source][wp] += calculate_bin(
+                        wp_bins, wp_value[wp_value > 0]
+                    )
+
+            wd_sum, wd_sample = calculate_vertical_wasserstein(
+                cloud["prediction"], cloud["target"], z_tar
+            )
+            comparisons["all"]["VerticalWD"] += wd_sum
+            sample_w["all"] += wd_sample
 
     print("calculate statistics")
     sample_h = np.size(data, axis=-1) * np.size(data, axis=-2)
@@ -142,6 +188,15 @@ def main(
 
     for var in vars:
         for source in sources:
+            c_mean[source][var] = np.where(
+                sample_c[source][var] > 0, mean[source][var] / sample_c[source][var], 0
+            )
+            c_std[source][var] = np.where(
+                sample_c[source][var] > 0,
+                square[source][var] / sample_c[source][var] - c_mean[source][var] ** 2,
+                0,
+            )
+
             mean[source][var] = mean[source][var] / sample_th
             stats[source][var]["Mean"] = np.sum(mean[source][var]) / sample_z
 
@@ -186,6 +241,9 @@ def main(
         list(sample_r.values())
     )
 
+    for var in vars_all:
+        comparisons[var]["VerticalWD"] = comparisons[var]["VerticalWD"] / sample_w[var]
+
     rows = {}
 
     for source in sources:
@@ -199,7 +257,7 @@ def main(
     df = df[vars_all]
 
     row_order = [
-        f"{s}_{m}" for s in sources for m in ["Mean", "Std"]
+        f"{s}_{m}" for m in ["Mean", "Std"] for s in sources
     ] + comparison_metrics
     df = df.loc[row_order]
 
@@ -302,7 +360,7 @@ def main(
 
     for var in vars:
         for source in sources:
-            prob = q_counts[source][var] / sample_th
+            prob = q_counts[source][var] / np.sum(q_counts[source][var], axis=0)
 
             plotter = GridPlotter()
             plotter.plot_pcolor(
@@ -312,6 +370,7 @@ def main(
                 cmap=cmap_value,
                 **cfad_value_configs,
             )
+            plotter.plot_line(c_mean[source][var], z_tar, color="k", linewidth=2)
             plotter.plot_label(
                 title_configs=[
                     {
@@ -324,7 +383,8 @@ def main(
             plotter.save(fig_dir / f"cfad_{var}_{source}.png")
 
         prediction_prob, target_prob = [
-            q_counts[source][var] / sample_th for source in sources
+            q_counts[source][var] / np.sum(q_counts[source][var], axis=0)
+            for source in sources
         ]
         plotter = GridPlotter()
         plotter.plot_pcolor(
@@ -348,10 +408,14 @@ def main(
             assign_ctick=True,
             ctick_format="{:.0e}",
         )
+        plotter.plot_line(c_mean["prediction"][var], z_tar, color="k", linewidth=2)
+        plotter.plot_line(
+            c_mean["target"][var], z_tar, color="k", linestyle=":", linewidth=2
+        )
         plotter.plot_label(
             title_configs=[
                 {
-                    "label": rf"${var[0].capitalize()}_{var[1]}$: Diff",
+                    "label": rf"${var[0].capitalize()}_{var[1]}$ Diff: {source_to_title[source]}",
                     "loc": "left",
                 }
             ],
@@ -371,10 +435,14 @@ def main(
             nan_color=nan_color,
             cbar_label="%",
         )
+        plotter.plot_line(c_mean["prediction"][var], z_tar, color="k", linewidth=2)
+        plotter.plot_line(
+            c_mean["target"][var], z_tar, color="k", linestyle=":", linewidth=2
+        )
         plotter.plot_label(
             title_configs=[
                 {
-                    "label": rf"${var[0].capitalize()}_{var[1]}$: Relative Diff",
+                    "label": rf"${var[0].capitalize()}_{var[1]}$ Relative Diff: {source_to_title[source]}",
                     "loc": "left",
                 }
             ],
@@ -382,30 +450,92 @@ def main(
         )
         plotter.save(fig_dir / f"cfad_{var}_rdiff.png")
 
-    # Histogram
+    # WP Histogram
+    centers = np.sqrt(wp_bins[1:-1] * wp_bins[2:])
+
     for wp in WPS:
         plotter = BarPlotter()
         for source in sources:
             plotter.plot_bar(
                 wp_bins[:-1],
-                wp_counts[source][wp] / sample_th,
+                wp_counts[source][wp] / np.sum(wp_counts[source][wp]),
                 label=source_to_title[source],
                 **bin_configs,
             )
-        plotter.plot_label(title_configs=[{"label": wp.upper(), "loc": "left"}])
-        plotter.save(fig_dir / f"{wp}.png")
+        wd = wasserstein_distance(
+            centers,
+            centers,
+            wp_counts["prediction"][wp][1:],
+            wp_counts["target"][wp][1:],
+        )
+
+        plotter.plot_label(
+            xlabel="kg m⁻²",
+            title_configs=[
+                {"label": f"{wp.upper()}: {exp}", "loc": "left"},
+                {"label": f"Wasserstein Distance: {wd:.2f}", "loc": "right"},
+            ],
+        )
+        plotter.save(fig_dir / f"distribution_{wp}.png")
+
+    # WP Spectrum
+    for wp in WPS:
+        plotter = GridPlotter()
+
+        for source in sources:
+            energy = spectrum_energy[source][wp]
+            counts = spectrum_counts[source][wp]
+            spectrum = np.divide(
+                energy, counts, out=np.full_like(energy, np.nan), where=counts > 0
+            )
+            wavelength_km = get_spectrum_wavelength(
+                shape=data.shape[-2:], grid_spacing_km=grid_spacing
+            )
+
+            valid_bin = (counts > 0) & np.isfinite(spectrum)
+            wavelength_km = wavelength_km[valid_bin]
+            spectrum = smooth_spectrum(spectrum[valid_bin])
+
+            plotter.plot_line(
+                wavelength_km, spectrum, linewidth=2, label=source_to_title[source]
+            )
+        plotter.plot_label(
+            xlim=[1, 1000],
+            invert_x=True,
+            xlabel="km",
+            ylim=[1e-4, 1e4],
+            invert_y=False,
+            y_log_scale=True,
+            ylabel="Power",
+            title_configs=[{"label": f"{wp.upper()}: {exp}", "loc": "left"}],
+        )
+        plotter.save(fig_dir / f"spectrum_{wp}.png")
 
     # Profile
     plot_profile(
         fig_dir / "profile.png",
         z_tar,
-        mean["prediction"],
-        mean["target"],
-        xlim=[1e-10, 1e-4],
+        c_mean["prediction"],
+        c_mean["target"],
+        xlim=[1e-8, 1e-2],
         yticks=label_configs["yticks"],
     )
 
     # Heat map for Statistics
+    for var in vars:
+        std_r[var] = c_std["prediction"][var] / c_std["target"][var]
+    plot_heat_map(
+        fig_dir / "std_ratio.png",
+        np.array(list(std_r.values())).transpose(),
+        cmap=cmap_diff,
+        bounds=[0.1, 0.2, 0.5, 0.8, 1.25, 2, 5, 10],
+        extend="both",
+        nan_color=nan_color,
+        assign_ctick=True,
+        title_configs=[{"label": f"Std Ratio: {exp}", "loc": "left"}],
+        **heat_configs,
+    )
+
     plot_heat_map(
         fig_dir / "mae.png",
         np.array(list(mae.values())).transpose(),
