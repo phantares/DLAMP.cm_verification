@@ -1,3 +1,5 @@
+import numpy as np
+
 GRAVITY = 9.80665
 R = 6371.0088  # km
 STANDARD_LEVEL = [
@@ -37,18 +39,5 @@ q_bins = [
     3e-2,
 ]
 
-wp_bins = [
-    0,
-    1e-6,
-    1e-5,
-    1e-4,
-    1e-3,
-    1e-2,
-    1e-1,
-    1e0,
-    1e1,
-    1e2,
-    1e3,
-    1e4,
-]
+wp_bins = np.concatenate([[0.0], np.logspace(-7, 4, 110 + 1)])
 WPS = ["iwp", "lwp"]
