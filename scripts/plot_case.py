@@ -1,6 +1,6 @@
 import argparse
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import h5py as h5
@@ -45,7 +45,7 @@ def main(
     source_to_title = {"prediction": prediction_title, "target": "RWRF"}
     source_to_name = {"prediction": prediction_name, "target": "target"}
 
-    plot_vars = ["IWP", "LWP", "Radar"]
+    plot_vars = ["IWP", "LWP", "TWP", "Radar"]
     var_to_plot = {
         "qi": "IWP",
         "qs": "IWP",
@@ -93,9 +93,11 @@ def main(
                 print(np.amax(data))
 
                 datas[source][var_to_plot.get(var, var)] += data
+    for source in sources:
+        datas[source]["TWP"] = datas[source]["IWP"] + datas[source]["LWP"]
 
     plot_configs = {
-        "WP": {"vmin": -3, "cbar_log_scale": True},
+        "WP": {"vmin": -7, "cbar_log_scale": True},
         "Radar": {
             "cmap": "radar_dbz",
             "vmin": 1,
@@ -194,7 +196,7 @@ if __name__ == "__main__":
         )
 
     initial_time = (
-        datetime.strptime(args.initial_time, "%Y%m%d%H").replace(tzinfo=timezone.utc)
+        datetime.strptime(args.initial_time, "%Y%m%d%H").replace(tzinfo=UTC)
         if args.initial_time
         else None
     )
@@ -202,7 +204,7 @@ if __name__ == "__main__":
     main(
         args.exp,
         args.source,
-        datetime.strptime(args.time, "%Y%m%d%H").replace(tzinfo=timezone.utc),
+        datetime.strptime(args.time, "%Y%m%d%H").replace(tzinfo=UTC),
         initial_time,
         extent=args.extent,
         mask_threshold=args.mask,
