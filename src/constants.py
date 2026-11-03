@@ -41,3 +41,5 @@ q_bins = [
 
 wp_bins = np.concatenate([[0.0], np.logspace(-7, 4, 110 + 1)])
 WPS = ["iwp", "lwp"]
+
+fss_windows = np.arange(1, 26, 2)
