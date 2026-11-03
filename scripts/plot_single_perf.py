@@ -1,5 +1,5 @@
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import h5py as h5
@@ -9,13 +9,14 @@ import yaml
 from calculators import (
     DetectionCalculator,
     calculate_bin,
+    calculate_fss,
     calculate_isotropic_spectrum_sum,
     calculate_vertical_wasserstein,
     calculate_water_path,
     get_spectrum_wavelength,
     smooth_spectrum,
 )
-from constants import STANDARD_LEVEL, WPS, q_bins, wp_bins
+from constants import STANDARD_LEVEL, WPS, fss_windows, q_bins, wp_bins
 from dotenv import dotenv_values
 from plotters import BarPlotter, GridPlotter, PDPlotter, plot_heat_map, plot_profile
 from scipy.stats import wasserstein_distance
@@ -63,6 +64,9 @@ def main(
     fas = {var: np.zeros(sample_z) for var in vars}
     crs = {var: np.zeros(sample_z) for var in vars}
     std_r = {var: np.zeros(sample_z) for var in vars}
+
+    fss_numerator = {var: np.zeros(len(fss_windows)) for var in vars_all}
+    fss_denominator = {var: np.zeros(len(fss_windows)) for var in vars_all}
 
     q_counts = {
         source: {var: np.zeros((len(q_bins) - 1, sample_z)) for var in vars}
@@ -131,6 +135,13 @@ def main(
                     )
                     mean[source][var] += np.sum(data, axis=axes_to_sum)
                     square[source][var] += np.sum(data**2, axis=axes_to_sum)
+
+                fss_n, fss_d = calculate_fss(
+                    datas["prediction"], datas["target"], window_sizes=fss_windows
+                )
+                fss_numerator[var] += fss_n
+                fss_denominator[var] += fss_d
+
                 wd_sum, wd_sample = calculate_vertical_wasserstein(
                     datas["prediction"], datas["target"], z_tar
                 )
@@ -175,6 +186,12 @@ def main(
                     wp_counts[source][wp] += calculate_bin(
                         wp_bins, wp_value[wp_value > 0]
                     )
+
+            fss_n, fss_d = calculate_fss(
+                cloud["prediction"], cloud["target"], window_sizes=fss_windows
+            )
+            fss_numerator["all"] += fss_n
+            fss_denominator["all"] += fss_d
 
             wd_sum, wd_sample = calculate_vertical_wasserstein(
                 cloud["prediction"], cloud["target"], z_tar
@@ -354,6 +371,29 @@ def main(
         title_configs=[{"label": f"False Alarm Rate: {exp}", "loc": "left"}],
         **heat_configs,
     )
+
+    # FSS
+    plotter = GridPlotter()
+    for var in vars_all:
+        fss = np.divide(
+            fss_denominator[var] - fss_numerator[var],
+            fss_denominator[var],
+            out=np.full_like(fss_denominator[var], np.nan),
+            where=fss_denominator[var] > 0,
+        )
+        plotter.plot_line(
+            fss_windows * 2, fss, linewidth=2, label=f"{var[0].capitalize()}{var[1:]}"
+        )
+
+    plotter.plot_label(
+        x_log_scale=False,
+        xlabel="km",
+        ylim=[0, 1],
+        invert_y=False,
+        ylabel="FSS",
+        title_configs=[{"label": f"Fractions Skill Score: {exp}", "loc": "left"}],
+    )
+    plotter.save(fig_dir / "fss.png")
 
     # CFAD
     pressure_edges = np.concatenate([[1050], np.diff(z_tar) / 2 + z_tar[:-1], [0]])
@@ -619,7 +659,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     initial_time = (
-        datetime.strptime(args.initial_time, "%Y%m%d%H").replace(tzinfo=timezone.utc)
+        datetime.strptime(args.initial_time, "%Y%m%d%H").replace(tzinfo=UTC)
         if args.initial_time
         else None
     )
