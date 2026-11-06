@@ -7,6 +7,7 @@ from .spectrum_calculator import (
     get_spectrum_wavelength,
     smooth_spectrum,
 )
+from .ssim_calculator import calculate_ssim
 from .vertical_wasserstein_calculator import calculate_vertical_wasserstein
 from .water_path_calculator import calculate_water_path
 
@@ -16,6 +17,7 @@ __all__ = [
     "calculate_cross_section_points",
     "calculate_fss",
     "calculate_isotropic_spectrum_sum",
+    "calculate_ssim",
     "calculate_vertical_wasserstein",
     "calculate_water_path",
     "get_spectrum_wavelength",

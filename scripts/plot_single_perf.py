@@ -11,12 +11,13 @@ from calculators import (
     calculate_bin,
     calculate_fss,
     calculate_isotropic_spectrum_sum,
+    calculate_ssim,
     calculate_vertical_wasserstein,
     calculate_water_path,
     get_spectrum_wavelength,
     smooth_spectrum,
 )
-from constants import STANDARD_LEVEL, WPS, fss_windows, q_bins, wp_bins
+from constants import Q_MAX, STANDARD_LEVEL, WPS, fss_windows, q_bins, wp_bins
 from dotenv import dotenv_values
 from plotters import BarPlotter, GridPlotter, PDPlotter, plot_heat_map, plot_profile
 from scipy.stats import wasserstein_distance
@@ -58,6 +59,7 @@ def main(
     sample_r = {var: 0 for var in vars}
     sample_c = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
     sample_w = {var: 0 for var in vars_all}
+    sample_s = {var: np.zeros(sample_z) for var in vars}
 
     hits = {var: np.zeros(sample_z) for var in vars}
     misses = {var: np.zeros(sample_z) for var in vars}
@@ -84,6 +86,7 @@ def main(
     c_mean = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
     c_std = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
 
+    ssim = {var: np.zeros(sample_z) for var in vars}
     mae = {var: np.zeros(sample_z) for var in vars}
     r_mae = {var: np.zeros(sample_z) for var in vars}
     bias = {var: np.zeros(sample_z) for var in vars}
@@ -166,6 +169,17 @@ def main(
                         q_bins, pred[pred > 0]
                     )
                     q_counts["target"][var][:, k] += calculate_bin(q_bins, tar[tar > 0])
+
+                    ssim_t, ssim_n = calculate_ssim(
+                        pred,
+                        tar,
+                        0,
+                        q0=thresholds[var],
+                        q_max=Q_MAX[var],
+                        window_size=5,
+                    )
+                    ssim[var][k] += ssim_t
+                    sample_s[var][k] += ssim_n
 
                     diff = pred - tar
                     mae[var][k] += np.sum(np.abs(diff))
@@ -564,6 +578,13 @@ def main(
     # Heat map for Statistics
     for var in vars:
         std_r[var] = c_std["prediction"][var] / c_std["target"][var]
+        ssim[var] = np.divide(
+            ssim[var],
+            sample_s[var],
+            out=np.full_like(ssim[var], np.nan),
+            where=sample_s[var] > 0,
+        )
+
     plot_heat_map(
         fig_dir / "std_ratio.png",
         np.array(list(std_r.values())).transpose(),
@@ -573,6 +594,15 @@ def main(
         nan_color=nan_color,
         assign_ctick=True,
         title_configs=[{"label": f"Std Ratio: {exp}", "loc": "left"}],
+        **heat_configs,
+    )
+
+    plot_heat_map(
+        fig_dir / "ssim.png",
+        np.array(list(ssim.values())).transpose(),
+        cmap=cmap_scalar,
+        nan_color=nan_color,
+        title_configs=[{"label": f"SSIM: {exp}", "loc": "left"}],
         **heat_configs,
     )
 
