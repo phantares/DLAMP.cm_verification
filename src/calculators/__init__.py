@@ -2,6 +2,7 @@ from .bin_calculator import calculate_bin
 from .cross_points_calculator import calculate_cross_section_points
 from .detection_calculator import DetectionCalculator
 from .fss_calculator import calculate_fss
+from .sal_calculator import calculate_sal
 from .spectrum_calculator import (
     calculate_isotropic_spectrum_sum,
     get_spectrum_wavelength,
@@ -17,6 +18,7 @@ __all__ = [
     "calculate_cross_section_points",
     "calculate_fss",
     "calculate_isotropic_spectrum_sum",
+    "calculate_sal",
     "calculate_ssim",
     "calculate_vertical_wasserstein",
     "calculate_water_path",
