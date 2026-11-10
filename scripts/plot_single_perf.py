@@ -11,6 +11,7 @@ from calculators import (
     calculate_bin,
     calculate_fss,
     calculate_isotropic_spectrum_sum,
+    calculate_sal,
     calculate_ssim,
     calculate_vertical_wasserstein,
     calculate_water_path,
@@ -60,6 +61,7 @@ def main(
     sample_c = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
     sample_w = {var: 0 for var in vars_all}
     sample_s = {var: np.zeros(sample_z) for var in vars}
+    sample_sal = {var: np.zeros(sample_z) for var in vars}
 
     hits = {var: np.zeros(sample_z) for var in vars}
     misses = {var: np.zeros(sample_z) for var in vars}
@@ -87,6 +89,9 @@ def main(
     c_std = {source: {var: np.zeros(sample_z) for var in vars} for source in sources}
 
     ssim = {var: np.zeros(sample_z) for var in vars}
+    sal_s = {var: np.zeros(sample_z) for var in vars}
+    sal_a = {var: np.zeros(sample_z) for var in vars}
+    sal_l = {var: np.zeros(sample_z) for var in vars}
     mae = {var: np.zeros(sample_z) for var in vars}
     r_mae = {var: np.zeros(sample_z) for var in vars}
     bias = {var: np.zeros(sample_z) for var in vars}
@@ -180,6 +185,12 @@ def main(
                     )
                     ssim[var][k] += ssim_t
                     sample_s[var][k] += ssim_n
+
+                    sals, sala, sall, saln = calculate_sal(pred, tar, 0)
+                    sal_s[var][k] += sals
+                    sal_a[var][k] += sala
+                    sal_l[var][k] += sall
+                    sample_sal[var][k] += saln
 
                     diff = pred - tar
                     mae[var][k] += np.sum(np.abs(diff))
@@ -381,7 +392,7 @@ def main(
     plot_heat_map(
         fig_dir / "far.png",
         far.transpose(),
-        cmap=cmap_scalar,
+        cmap=f"{cmap_scalar}_r",
         title_configs=[{"label": f"False Alarm Rate: {exp}", "loc": "left"}],
         **heat_configs,
     )
@@ -584,6 +595,24 @@ def main(
             out=np.full_like(ssim[var], np.nan),
             where=sample_s[var] > 0,
         )
+        sal_s[var] = np.divide(
+            sal_s[var],
+            sample_sal[var],
+            out=np.full_like(sal_s[var], np.nan),
+            where=sample_sal[var] > 0,
+        )
+        sal_a[var] = np.divide(
+            sal_a[var],
+            sample_sal[var],
+            out=np.full_like(sal_a[var], np.nan),
+            where=sample_sal[var] > 0,
+        )
+        sal_l[var] = np.divide(
+            sal_l[var],
+            sample_sal[var],
+            out=np.full_like(sal_l[var], np.nan),
+            where=sample_sal[var] > 0,
+        )
 
     plot_heat_map(
         fig_dir / "std_ratio.png",
@@ -603,6 +632,40 @@ def main(
         cmap=cmap_scalar,
         nan_color=nan_color,
         title_configs=[{"label": f"SSIM: {exp}", "loc": "left"}],
+        **heat_configs,
+    )
+
+    plot_heat_map(
+        fig_dir / "sal_s.png",
+        np.array(list(sal_s.values())).transpose(),
+        cmap=cmap_diff,
+        vmin=-2,
+        vmax=2,
+        ncolors=20,
+        nan_color=nan_color,
+        title_configs=[{"label": f"Structure: {exp}", "loc": "left"}],
+        **heat_configs,
+    )
+
+    plot_heat_map(
+        fig_dir / "sal_a.png",
+        np.array(list(sal_a.values())).transpose(),
+        cmap=cmap_diff,
+        vmin=-2,
+        vmax=2,
+        ncolors=20,
+        nan_color=nan_color,
+        title_configs=[{"label": f"Amplitude: {exp}", "loc": "left"}],
+        **heat_configs,
+    )
+
+    plot_heat_map(
+        fig_dir / "sal_l.png",
+        np.array(list(sal_l.values())).transpose(),
+        cmap=f"{cmap_scalar}_r",
+        vmax=2,
+        nan_color=nan_color,
+        title_configs=[{"label": f"Location: {exp}", "loc": "left"}],
         **heat_configs,
     )
 
